@@ -1,0 +1,65 @@
+# OS / editor noise
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Microsoft Office temporary lock files
+~$*
+
+# Python caches and environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Local secrets and environment config
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Generated outputs and scratch space
+outputs/
+output/
+tmp/
+temp/
+cache/
+.cache/
+
+# Large geospatial/data artifacts.
+# Keep source metadata and small curated examples in git; put bulky raw data here.
+data/raw/
+data/interim/
+data/processed/
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+*.gpkg
+*.geojson
+*.parquet
+*.feather
+*.sqlite
+*.duckdb
+*.zip
+*.7z
+
+# Node dependencies if a small frontend/API demo is added later
+node_modules/
+dist/
+build/
