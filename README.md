@@ -1,43 +1,56 @@
 ﻿# OpenGrid MVP
 
-> AI-assisted geospatial data retrieval — describe a place and data category in natural language, get standardized GeoJSON outputs.
+> AI-assisted geospatial data retrieval — natural language in, GeoJSON out.
 
-## What It Does
+Describe a place and data category in plain language, and the system plans, geocodes, fetches, and returns standardized geospatial outputs.
 
-You type something like *"EV charging stations within 3 km of Central Park"* and the system:
+## Pipeline
 
-1. **Plans** — extracts structured intent via LLM (or deterministic keyword fallback)
-2. **Geocodes** — resolves place names to WGS84 bounding boxes using multiple providers
-3. **Fetches** — dispatches requests to 9 registered API / Google Earth Engine clients
-4. **Saves** — writes per-source GeoJSON, a combined GeoJSON, and a summary
+```
+User Query (English / 中文)
+        │
+        ▼
+[1] Plan — LLM extracts structured intent: place, radius, sources, year
+        │
+        ▼
+[2] Geocode — Google Maps → AMap / Baidu (for addresses inside China)
+        │
+        ▼
+[3] Fetch — dispatch to API / Google Earth Engine clients
+        │
+        ▼
+[4] Save — per-source GeoJSON, combined.geojson, summary.json
+```
 
 ## Architecture
 
-| Layer | Module(s) | Description |
-|-------|-----------|-------------|
-| AI Planning | `agent.py`, `source_registry.py` | LangChain + heuristic fallback |
-| Geocoding | `geocoding.py` | AMap → Baidu → Nominatim, GCJ-02/BD-09 → WGS84 |
-| Data Fetching | `clients/*.py` | 9 sources across 5 API protocols |
-| Output | `geojson_utils.py` | GeoJSON FeatureCollection with metadata |
+| Layer | Module | Description |
+|-------|--------|-------------|
+| AI Planning | `agent.py` | LangChain with OpenAI or DeepSeek; deterministic keyword fallback |
+| Source Catalog | `source_registry.py` | 9 registered sources with English + Chinese aliases |
+| Geocoding | `geocoding.py` | Google → AMap → Baidu; GCJ-02 / BD-09 → WGS84 conversion |
+| Data Fetching | `clients/*.py` | 5 client modules covering REST, ArcGIS FS, EIA, Overpass, GEE |
+| Output | `geojson_utils.py` | Validation, BBox filtering, merging, metadata injection |
 
-## Registered Data Sources
+## Registered Data Sources (9)
 
-| Source | Category | Format | Year Filter | API |
-|--------|----------|:------:|:-----------:|-----|
-| AFDC Stations | EV charging | GeoJSON | No | NREL REST |
-| National Highway System | Transport | GeoJSON | Yes | ArcGIS FS |
-| North American Rail | Transport | GeoJSON | No | ArcGIS FS |
-| HIFLD Substations | Substations | GeoJSON | Yes | ArcGIS FS |
-| USACE Waterway Network | Transport | GeoJSON | Yes | ArcGIS FS |
-| EIA Power Plants | Power plants | GeoJSON | Yes | EIA REST v2 |
-| OSM Power Infrastructure | Power | GeoJSON | No | Overpass API |
-| MODIS Land Use | Land cover | GeoTIFF | Yes | Google Earth Engine |
-| Sentinel-2 RGB | Satellite imagery | GeoTIFF | Yes | Google Earth Engine |
+| Source ID | Category | Format | Year Filter | API |
+|-----------|----------|:------:|:-----------:|-----|
+| `afdc_stations` | EV charging | GeoJSON | — | NREL REST |
+| `national_highway_system` | Transport | GeoJSON | ✅ (`YEAR`) | ArcGIS FeatureServer |
+| `north_american_rail` | Transport | GeoJSON | — | ArcGIS FeatureServer |
+| `hifld_electric_substations` | Substations | GeoJSON | ✅ (`SOURCEDATE`) | ArcGIS FeatureServer |
+| `usace_national_waterway_network` | Transport | GeoJSON | ✅ (`DATE_MOD`) | ArcGIS FeatureServer |
+| `eia_power_plants` | Power plants | GeoJSON | ✅ (`period`) | EIA REST v2 |
+| `osm_power` | Power infrastructure | GeoJSON | — | Overpass API |
+| `modis_landuse` | Land cover | GeoTIFF | ✅ (year of MCD12Q1) | Google Earth Engine |
+| `sentinel2_rgb` | Satellite imagery | GeoTIFF | ✅ (June–Sep median) | Google Earth Engine |
+
+Sentinel-2 RGB uses `COPERNICUS/S2_SR_HARMONIZED` with bands B4 (R), B3 (G), B2 (B) at 10 m resolution, cloud-masked via QA60.
 
 ## Quick Start
 
 ```powershell
-# Clone & install
 git clone https://github.com/Lunar-Elf/opengrid-mvp.git
 cd opengrid-mvp
 python -m venv .venv
@@ -46,47 +59,52 @@ pip install -r requirements.txt
 
 # Configure API keys
 copy .env.example .env
-# Fill in your keys in .env
+# Edit .env with your keys
 ```
 
-### Required Environment Variables
+### Environment Variables
 
 ```text
-# Core
-OPENAI_API_KEY=your_openai_key_here        # LLM planner (optional; falls back to keywords)
-DEEPSEEK_API_KEY=your_deepseek_key_here    # Alternative LLM provider
-LLM_PROVIDER=deepseek                      # or openai
+# LLM Planner (optional; falls back to keyword matching if keys are missing)
+LLM_PROVIDER=deepseek          # or openai
+OPENAI_API_KEY=your_key        # for OpenAI
+DEEPSEEK_API_KEY=your_key      # for DeepSeek
 
 # Geocoding
-AMAP_API_KEY=your_amap_key_here            # AMap (Gaode) geocoding
-BAIDU_API_KEY=your_baidu_key_here          # Baidu geocoding
+GOOGLE_GEOCODE_API_KEY=your_key    # Primary geocoder for all addresses
+AMAP_API_KEY=your_key              # Override for China addresses
+BAIDU_API_KEY=your_key             # Fallback for China addresses
 
 # Data Sources
-AFDC_API_KEY=your_key_here                 # NREL alt-fuel stations
-EIA_API_KEY=your_key_here                  # EIA power plants
-GOOGLE_CLOUD_PROJECT=your_project_id       # Google Earth Engine (MODIS, Sentinel-2)
+AFDC_API_KEY=your_key              # NREL alt-fuel stations
+EIA_API_KEY=your_key               # EIA power plants
+GOOGLE_CLOUD_PROJECT=your_id       # Google Earth Engine
 ```
 
 ## Usage
 
-### Natural Language Query (primary entry point)
+### Natural Language Query
 
 ```powershell
-python scripts/agent_query.py "Central Park EV charging stations"
-python scripts/agent_query.py "Times Square substations within 3 km"
-python scripts/agent_query.py "Central Park satellite imagery 2024"
+# English
+python scripts/agent_query.py "EV charging stations within 3 km of Central Park"
+python scripts/agent_query.py "satellite imagery of Times Square 2024"
+python scripts/agent_query.py "power plants near Empire State Building"
 
-# Plan only — see what the agent understood without fetching
+# 中文
+python scripts/agent_query.py "帝国大厦周围3公里变电站 2023"
+python scripts/agent_query.py "中央公园电动汽车充电站"
+python scripts/agent_query.py "获取纽约中央公园周围三公里的所有数据"
+
+# Plan only — see what was understood without fetching
 python scripts/agent_query.py --plan-only "Times Square substations"
+python scripts/agent_query.py --plan-only --no-geocode-preview "Times Square substations"
 
-# Interactive mode — keep asking queries in a session
-python scripts/agent_query.py --interactive
-
-# Chat interface
-python scripts/chat_query.py
-
-# Deterministic keyword fallback (no LLM needed)
+# Deterministic keyword fallback (no LLM)
 python scripts/agent_query.py --no-llm "帝国大厦周围3公里变电站 2023"
+
+# Interactive mode
+python scripts/agent_query.py --interactive
 
 # List all registered sources
 python scripts/agent_query.py --list-sources
@@ -97,10 +115,12 @@ python scripts/agent_query.py --list-sources
 ```powershell
 python scripts/fetch_afdc.py
 python scripts/fetch_nhs.py --year 2023
-python scripts/fetch_sentinel2.py --year 2024
-python scripts/fetch_modis_landuse.py --year 2023
+python scripts/fetch_hifld_substations.py --year 2020
+python scripts/fetch_usace_nwn.py --year 2020
 python scripts/fetch_eia_power_plants.py --year 2020
 python scripts/fetch_osm_power.py
+python scripts/fetch_sentinel2.py --year 2024
+python scripts/fetch_modis_landuse.py --year 2023
 python scripts/fetch_all.py --year 2023
 ```
 
@@ -108,19 +128,25 @@ python scripts/fetch_all.py --year 2023
 
 ```
 outputs/
-├── central_park/           # Legacy fetch_all.py output
 └── queries/
     └── 20260603_120000_central_park/
         ├── afdc_stations.geojson
         ├── national_highway_system.geojson
-        ├── ...              # one file per source
-        ├── combined.geojson  # all vector features merged
-        └── summary.json      # metadata about the run
+        ├── ...                          # one per source
+        ├── combined.geojson             # all vector features merged
+        ├── summary.json                 # run metadata
+        └── modis_landuse.tif            # raster outputs excluded from combined
 ```
 
 ## Geocoding
 
-The system tries providers in order: **AMap → Baidu → Nominatim**. A local gazetteer handles well-known global landmarks. Chinese coordinate systems (GCJ-02, BD-09) are automatically converted to WGS84.
+The geocoding pipeline resolves place names to WGS84 bounding boxes:
+
+1. **Google Maps** — primary geocoder, best global coverage
+2. **AMap (高德)** — used when Google result falls inside China, for more accurate local coordinates
+3. **Baidu (百度)** — fallback if AMap is unavailable or fails
+
+Chinese coordinate systems (GCJ-02 from AMap, BD-09 from Baidu) are automatically converted to WGS84. No Nominatim is used.
 
 ## Tests
 
@@ -132,25 +158,29 @@ python -m unittest discover -s tests
 
 ```
 src/opengrid_mvp/
-├── agent.py               # LLM planner & main orchestration
-├── source_registry.py     # Data source catalog & dispatch
-├── geocoding.py           # Multi-provider geocoding & coordinate transforms
-├── geojson_utils.py       # Validation, merging, metadata injection
-├── config.py              # Shared BBox, API URLs, GEE constants
+├── agent.py               # LLM planner, heuristic fallback, run_agent_request()
+├── source_registry.py     # DatasetSource catalog, alias matching, dispatch
+├── geocoding.py           # Google / AMap / Baidu geocoding, coordinate transforms
+├── geojson_utils.py       # Validation, BBox filter, metadata, merge, save
+├── config.py              # BBox, source metadata, API URLs, GEE constants
 └── clients/
-    ├── afdc.py            # NREL alt-fuel stations
+    ├── afdc.py            # NREL alternative fuel stations
     ├── arcgis.py          # ArcGIS FeatureServer → GeoJSON
-    ├── eia.py             # EIA power plant data
+    ├── eia.py             # EIA-860M operating generator capacity
     ├── gee.py             # MODIS land use + Sentinel-2 RGB
-    └── osm.py             # OpenStreetMap Overpass API
+    └── osm.py             # OpenStreetMap Overpass → power infrastructure
+
+scripts/
+├── agent_query.py         # PRIMARY ENTRY POINT
+├── fetch_all.py           # Fetch all vector sources for a fixed BBox
+├── fetch_*.py             # Single-source thin wrappers (9 scripts)
+└── _bootstrap.py          # sys.path injection for direct script execution
+
+tests/
+├── test_geojson_utils.py
+├── test_clients.py
+└── test_agent_geocoding.py
 ```
-
-## Development
-
-- Never commit `.env` — secrets stay local
-- Update `.env.example` when adding new environment variables
-- Generated outputs, caches, and large geospatial files stay out of Git
-- New data sources follow the [AGENTS.md](AGENTS.md) checklist
 
 ## License
 
