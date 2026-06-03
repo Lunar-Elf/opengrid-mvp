@@ -1,8 +1,8 @@
-# AGENTS.md
+﻿# AGENTS.md
 
 ## Project Overview
 
-OpenGrid MVP — an AI-assisted geospatial data retrieval system. A user
+spatial-data-query-agent — an AI-assisted geospatial data retrieval system. A user
 describes what they want in natural language (place + data category), and the
 system plans, geocodes, fetches, and returns standardized GeoJSON outputs.
 

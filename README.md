@@ -1,4 +1,4 @@
-﻿# OpenGrid MVP
+﻿# spatial-data-query-agent
 
 > AI-assisted geospatial data retrieval — natural language in, GeoJSON out.
 
